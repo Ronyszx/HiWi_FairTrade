@@ -144,7 +144,6 @@ def initialize_model(train_x, train_y):
     models = []
     for i in range(train_y.shape[-1]):
         train_objective = train_y[:,i]
-        print("bismillah")
         models.append(
           SingleTaskGP(train_x, train_objective.unsqueeze(-1))
         )
@@ -240,7 +239,6 @@ def models_have_same_parameters(model1, model2):
     params1 = list(model1.parameters())
     params2 = list(model2.parameters())
     print(params1)
-    print("bismillah")
     print(params2)
     if len(params1) != len(params2):
         return False
@@ -265,9 +263,9 @@ for round in range(communication_rounds):
 
     #objectives = evaluate(alpha)
     if round == 0:
-        objectives, bal_acc_, fairness_notion_ = evaluate(alpha)
+        objectives = evaluate(alpha)
     else:
-        objectives, bal_acc_, fairness_notion_ = evaluate(updated_alpha, updated_lr)
+        objectives = evaluate(updated_alpha, updated_lr)
     fairness_notion_list.append(objectives[0,0].item())
     bal_acc_list.append(objectives[0,1].item())
     
@@ -308,7 +306,6 @@ for round in range(communication_rounds):
 
             for i, m in enumerate(model.models):
                 train_x = torch.cat([m.train_inputs[0], candidate])
-                print("bismillah")
                 train_y = torch.cat([m.train_targets, new_objectives[:,i]])
                 m.set_train_data(train_x, train_y, strict=False)
                 if i == 0:

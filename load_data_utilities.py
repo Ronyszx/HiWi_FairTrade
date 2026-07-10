@@ -21,7 +21,26 @@ def find_potential_outcomes(H, observed_output, sensitive_feature): #H is client
     psm = PsmPy(G, treatment=sensitive_feature, indx='index', exclude = [])
     psm.logistic_ps(balance = True)
     psm.predicted_data
-    psm.knn_matched(matcher='propensity_score', replacement=True, caliper=None)
+    #psm.knn_matched(matcher='propensity_score', replacement=True, caliper=None)
+    # Compatibility: older PsmPy versions used knn_matched,
+    # newer PsmPy versions use kdtree_matched.
+    if hasattr(psm, "knn_matched"):
+        psm.knn_matched(
+            matcher="propensity_score",
+            replacement=True,
+            caliper=None
+        )
+    elif hasattr(psm, "kdtree_matched"):
+        psm.kdtree_matched(
+            matcher="propensity_score",
+            replacement=True,
+            caliper=None,
+            drop_unmatched=False
+        )
+    else:
+        raise AttributeError(
+            "The installed psmpy version has neither knn_matched nor kdtree_matched."
+        )
     
     psm.matched_ids
     psm.predicted_data['propensity_logit']

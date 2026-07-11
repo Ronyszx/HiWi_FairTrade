@@ -2,6 +2,8 @@
 import torch
 import math
 import argparse
+import random
+from pathlib import Path
 from utilities import find_ate, find_ate_2, find_statistical_parity_score, find_eqop_score, all_metrics
 from load_data_utilities import get_data, load_dataset
 from constraint import AverageTreatmentEffectLoss, DemographicParityLoss
@@ -46,7 +48,24 @@ from botorch.utils.multi_objective.box_decompositions.non_dominated import (
 )
 # Initialize the argument parser
 parser = argparse.ArgumentParser(description="pass the following arguments: dataset_name, number of clients, fairness notion, number of communication rounds.")
-device = torch.device('mps')
+
+
+def resolve_device(device_name):
+    mps_available = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+
+    if device_name == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if mps_available:
+            return torch.device("mps")
+        return torch.device("cpu")
+    if device_name == "cuda" and not torch.cuda.is_available():
+        parser.error("--device cuda was requested, but CUDA is not available.")
+    if device_name == "mps" and not mps_available:
+        parser.error("--device mps was requested, but MPS is not available.")
+    return torch.device(device_name)
+
+
 '''
 #logistic regression model
 def create_model(input_dim):
@@ -97,6 +116,11 @@ parser.add_argument("--mobo_optimization_rounds", type=int, default=10,
 parser.add_argument("--distribution_type", type=str, default='random', 
                     choices=['random', 'attribute-based'], 
                     help="Data distribution type. Options: 'random', 'attribute-based'. Default is 'random'.")
+parser.add_argument("--seed", type=int, default=42,
+                    help="Random seed for Python, NumPy, and PyTorch. Default is 42.")
+parser.add_argument("--device", type=str, default='auto',
+                    choices=['auto', 'cpu', 'mps', 'cuda'],
+                    help="Execution device. 'auto' prefers CUDA, then MPS, then CPU. Default is 'auto'.")
 
 # Parse the arguments
 args = parser.parse_args()
@@ -109,6 +133,16 @@ epochs = args.epochs
 communication_rounds = args.communication_rounds
 mobo_optimization_rounds = args.mobo_optimization_rounds
 distribution_type = args.distribution_type
+seed = args.seed
+
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+
+device = resolve_device(args.device)
+print(f"Selected device: {device}")
 
 if dataset_name == 'adult':
     url = './datasets/adult.csv'
@@ -354,19 +388,20 @@ with torch.no_grad():
         
 
 
-destination = './results/'
+destination = Path('results') / dataset_name
+destination.mkdir(parents=True, exist_ok=True)
 
 if distribution_type == 'random':
     if fairness_notion == 'stat_parity':
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_bal_acc_stat_parity.npy', np.array(bal_acc_list))
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_stat_parity.npy', np.array(fairness_notion_list))
+        np.save(destination / f'{num_clients}_bal_acc_stat_parity.npy', np.array(bal_acc_list))
+        np.save(destination / f'{num_clients}_stat_parity.npy', np.array(fairness_notion_list))
     else:
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_bal_acc_ate.npy', np.array(bal_acc_list))
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_ate.npy', np.array(fairness_notion_list))
+        np.save(destination / f'{num_clients}_bal_acc_ate.npy', np.array(bal_acc_list))
+        np.save(destination / f'{num_clients}_ate.npy', np.array(fairness_notion_list))
 else:
     if fairness_notion == 'stat_parity':
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_attr_bal_acc_stat_parity.npy', np.array(bal_acc_list))
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_attr_stat_parity.npy', np.array(fairness_notion_list))
+        np.save(destination / f'{num_clients}_attr_bal_acc_stat_parity.npy', np.array(bal_acc_list))
+        np.save(destination / f'{num_clients}_attr_stat_parity.npy', np.array(fairness_notion_list))
     else:
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_attr_bal_acc_ate.npy', np.array(bal_acc_list))
-        np.save(destination+dataset_name+'/'+str(num_clients)+'_attr_ate.npy', np.array(fairness_notion_list))
+        np.save(destination / f'{num_clients}_attr_bal_acc_ate.npy', np.array(bal_acc_list))
+        np.save(destination / f'{num_clients}_attr_ate.npy', np.array(fairness_notion_list))

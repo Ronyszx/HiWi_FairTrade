@@ -20,3 +20,11 @@ Runtime compatibility/code issue:
 - FairTrade.py called evaluate() expecting three return values, but evaluate() returned only the objective tensor.
 - I fixed the call site by assigning only `objectives`, since the following code already extracts fairness and balanced accuracy from that tensor.
 - Full reasoning is documented in BUG_HUNT.md.
+
+Baseline reproducibility and portability:
+- Added `--seed` with a default of 42 and seeded Python, NumPy, PyTorch, and CUDA when available before loading data or creating the model.
+- Preserved all upstream dataset splits that explicitly use `random_state=42`.
+- Added `--device` with validated `auto`, `cpu`, `mps`, and `cuda` options. Auto selection prefers CUDA, then MPS, then CPU.
+- Added automatic creation of `results/<dataset_name>/` before saving result arrays.
+- Added the installed `psmpy==0.3.16` version to `requirements.txt` and synchronized the README dependencies.
+- These changes do not alter the training mathematics, fairness objective, model architecture, evaluation split, or MOBO candidate loop.

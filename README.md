@@ -21,7 +21,56 @@ The following scripts constitute the complete methodology of FairTrade
 - `Fairtrade.py`: Main script for the 'FairTrade' framework that orchestrates the fairness aware federated learning process on different datasets without secure multiparty protocol.
 
 - `constraint.py`: The script contains the implementation of fairness constraints for discrimination mitigation.
-  
+
+## HiWi Challenge Reproduction
+
+The HiWi challenge baseline uses the Adult dataset with gender (`sex`) as the sensitive attribute. The commands below use CPU explicitly so that the reported run does not depend on CUDA or Apple MPS availability.
+
+### Environment setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True python -m pip install -r requirements.txt
+```
+
+The environment variable is required because CrypTen declares the deprecated `sklearn` package name. The project itself uses `scikit-learn`.
+
+### Adult smoke test
+
+```bash
+python FairTrade.py \
+  --dataset_name adult \
+  --fairness_notion stat_parity \
+  --num_clients 3 \
+  --epochs 1 \
+  --communication_rounds 2 \
+  --mobo_optimization_rounds 1 \
+  --distribution_type random \
+  --seed 42 \
+  --device cpu
+```
+
+### Adult default reproduction
+
+```bash
+python FairTrade.py \
+  --dataset_name adult \
+  --fairness_notion stat_parity \
+  --num_clients 3 \
+  --epochs 15 \
+  --communication_rounds 50 \
+  --mobo_optimization_rounds 10 \
+  --distribution_type random \
+  --seed 42 \
+  --device cpu
+```
+
+`--seed` controls Python, NumPy, and PyTorch randomness. The upstream dataset splits that explicitly use `random_state=42` are preserved unchanged. `--device auto` prefers CUDA, then MPS, then CPU; use `--device cpu` for the documented reproduction run. Exact bit-for-bit agreement across different hardware or library versions is not guaranteed.
+
+The original repository's Bank commands are preserved below for reference.
+
 ## Running the FairTrade-crypten.py Script
 
 To run the `FairTrade-crypten.py` script with the default settings, you can use the following command:
@@ -41,7 +90,8 @@ Before running the script, ensure you have the following Python libraries instal
 
 - torch==2.0.1
 - torchvision==0.15.2
-- scikit-learn==0.24.2
+- scikit-learn==1.2.2
+- psmpy==0.3.16
 - pandas==1.5.3
 - gpytorch==1.10
 - botorch==0.8.5

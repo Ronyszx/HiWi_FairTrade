@@ -3,4 +3,7 @@
 __pycache__/
 *.pyc
 .DS_Store
-results/
+results/*
+!results/task1/
+results/task1/*
+!results/task1/task1_summary.csv

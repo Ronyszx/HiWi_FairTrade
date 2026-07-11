@@ -67,6 +67,15 @@ python FairTrade.py \
   --device cpu
 ```
 
+### Task 1 result
+
+| Metric | This reproduction | Reported Adult FairTrade result |
+| --- | ---: | ---: |
+| Balanced accuracy | 0.7690 | approximately 0.77 |
+| Statistical parity difference | 0.0284 | approximately 0.001 |
+
+Predictive performance closely matches the Adult R3C demographic-parity result in Table 1 of the [FairTrade paper](https://doi.org/10.1609/aaai.v38i10.28971), while the statistical parity difference is higher and is reported without adjustment. Detailed configuration, optimizer warnings, and the distinction between final-model and start-of-round metrics are recorded in [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md). The tracked numeric summary is available in [results/task1/task1_summary.csv](results/task1/task1_summary.csv).
+
 `--seed` controls Python, NumPy, and PyTorch randomness. The upstream dataset splits that explicitly use `random_state=42` are preserved unchanged. `--device auto` prefers CUDA, then MPS, then CPU; use `--device cpu` for the documented reproduction run. Exact bit-for-bit agreement across different hardware or library versions is not guaranteed.
 
 The original repository's Bank commands are preserved below for reference.

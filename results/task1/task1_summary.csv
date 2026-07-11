@@ -1,0 +1,7 @@
+metric,value,notes
+final_balanced_accuracy,0.7690318211867191,Final printed metric after the last MOBO evaluation
+final_spd,0.02843397520847807,Final printed signed statistical parity difference after the last MOBO evaluation
+last10_balanced_accuracy_mean,0.7706942706905966,Mean of the final ten start-of-round evaluations
+last10_balanced_accuracy_std,0.0016498609681449075,Population standard deviation (ddof=0) of the final ten start-of-round evaluations
+last10_spd_mean,0.027185439987727822,Mean signed SPD from the final ten start-of-round evaluations
+last10_spd_std,0.0036096977859567236,Population standard deviation (ddof=0) of the final ten start-of-round SPD evaluations

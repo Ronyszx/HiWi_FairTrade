@@ -21,6 +21,13 @@ Runtime compatibility/code issue:
 - I fixed the call site by assigning only `objectives`, since the following code already extracts fairness and balanced accuracy from that tensor.
 - Full reasoning is documented in BUG_HUNT.md.
 
+Task 2 evaluation support:
+- Added and pinned `pytest==9.1.1`, using the exact version installed in the project virtual environment.
+- Added and pinned the installed headless plotting dependency, `matplotlib==3.11.0`.
+- Task 2 is opt-in through `--task2_evaluation`; omitting the flag preserves Task 1 training and output behavior.
+- Sensitive encodings are inferred from the exact Adult CSV before group names are assigned.
+- The full Task 2 run regenerated Task 1 arrays with the same previously recorded SHA-256 hashes.
+
 Baseline reproducibility and portability:
 - Added `--seed` with a default of 42 and seeded Python, NumPy, PyTorch, and CUDA when available before loading data or creating the model.
 - Preserved all upstream dataset splits that explicitly use `random_state=42`.

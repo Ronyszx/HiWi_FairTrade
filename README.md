@@ -78,6 +78,49 @@ Predictive performance closely matches the Adult R3C demographic-parity result i
 
 `--seed` controls Python, NumPy, and PyTorch randomness. The upstream dataset splits that explicitly use `random_state=42` are preserved unchanged. `--device auto` prefers CUDA, then MPS, then CPU; use `--device cpu` for the documented reproduction run. Exact bit-for-bit agreement across different hardware or library versions is not guaranteed.
 
+### Task 2 intersectional fairness evaluation
+
+Task 2 is an optional post-training evaluation and does not change local training, aggregation, fairness loss, MOBO, or the Task 1 result arrays. Enable it on the same Adult baseline with:
+
+```bash
+python FairTrade.py \
+  --dataset_name adult \
+  --fairness_notion stat_parity \
+  --num_clients 3 \
+  --epochs 15 \
+  --communication_rounds 50 \
+  --mobo_optimization_rounds 10 \
+  --distribution_type random \
+  --seed 42 \
+  --device cpu \
+  --task2_evaluation
+```
+
+The evaluator derives the sensitive-attribute mappings from the exact Adult CSV using the same `LabelEncoder` behavior as preprocessing. For the included dataset, `Female=0`, `Male=1`, and the race codes are `Amer-Indian-Eskimo=0`, `Asian-Pac-Islander=1`, `Black=2`, `Other=3`, and `White=4`.
+
+Positive prediction rate is `P(prediction=1 | group)`. Signed gender SPD is `PPR(Male) - PPR(Female)`, and signed race SPD is `PPR(White) - PPR(Non-White)`. Absolute SPD reports the magnitude regardless of direction. For intersectional rows, signed SPD is `PPR(White Male) - PPR(group)`, with White Male documented as the reference. The max-min gap is the highest of the four intersectional PPRs minus the lowest.
+
+The four reported groups are White Male, White Female, Non-White Male, and Non-White Female. Combining four race categories as Non-White follows the challenge specification but can hide differences within that aggregate. Intersectional evaluation is useful because small aggregate gender or race gaps do not guarantee that every combined subgroup has a similar positive prediction rate.
+
+Outputs are written to:
+
+- `results/task2/adult_seed42_intersectional_metrics.csv`
+- `results/task2/adult_seed42_intersectional_spd.png`
+
+The full seed-42 run produced:
+
+| Metric / group | Value | Test samples |
+| --- | ---: | ---: |
+| Male positive prediction rate | 0.4734 | 4,360 |
+| Female positive prediction rate | 0.4450 | 2,153 |
+| Absolute gender SPD | 0.0284 | 6,513 |
+| White positive prediction rate | 0.4908 | 5,568 |
+| Non-White positive prediction rate | 0.3058 | 945 |
+| Absolute race SPD | 0.1850 | 6,513 |
+| Intersectional max-min gap | 0.1921 | 6,513 |
+
+The aggregate gender gap is relatively small, but the race and intersectional gaps are much larger. White Male has the highest intersectional positive prediction rate (`0.4961`), while Non-White Female has the lowest (`0.3040`). This is the central Task 2 finding: a single aggregate gender metric can conceal substantially different outcomes across combined gender-race groups.
+
 The original repository's Bank commands are preserved below for reference.
 
 ## Running the FairTrade-crypten.py Script
@@ -107,6 +150,8 @@ Before running the script, ensure you have the following Python libraries instal
 - crypten==0.4.1
 - cvxopt==1.3.1
 - cvxpy==1.3.2
+- pytest==9.1.1
+- matplotlib==3.11.0
 
 ## Citation Request
 If you find this work useful in your research, please consider citing:

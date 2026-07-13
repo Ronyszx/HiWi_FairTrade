@@ -7,6 +7,13 @@ from pathlib import Path
 from utilities import find_ate, find_ate_2, find_statistical_parity_score, find_eqop_score, all_metrics
 from load_data_utilities import get_data, load_dataset
 from constraint import AverageTreatmentEffectLoss, DemographicParityLoss
+from intersectional_fairness import (
+    GROUP_ORDER,
+    compute_intersectional_metrics,
+    save_comparison_chart,
+    save_metrics_csv,
+    validate_inputs,
+)
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import average_precision_score
 
@@ -121,6 +128,8 @@ parser.add_argument("--seed", type=int, default=42,
 parser.add_argument("--device", type=str, default='auto',
                     choices=['auto', 'cpu', 'mps', 'cuda'],
                     help="Execution device. 'auto' prefers CUDA, then MPS, then CPU. Default is 'auto'.")
+parser.add_argument("--task2_evaluation", action="store_true",
+                    help="Run the optional Adult intersectional fairness evaluation after training.")
 
 # Parse the arguments
 args = parser.parse_args()
@@ -134,6 +143,15 @@ communication_rounds = args.communication_rounds
 mobo_optimization_rounds = args.mobo_optimization_rounds
 distribution_type = args.distribution_type
 seed = args.seed
+task2_evaluation = args.task2_evaluation
+
+if task2_evaluation and (
+    dataset_name != "adult" or distribution_type != "random"
+):
+    parser.error(
+        "--task2_evaluation requires --dataset_name adult "
+        "and --distribution_type random."
+    )
 
 random.seed(seed)
 np.random.seed(seed)
@@ -405,3 +423,64 @@ else:
     else:
         np.save(destination / f'{num_clients}_attr_bal_acc_ate.npy', np.array(bal_acc_list))
         np.save(destination / f'{num_clients}_attr_ate.npy', np.array(fairness_notion_list))
+
+
+if task2_evaluation:
+    race_index = column_names_list.index("race")
+    sex_index = column_names_list.index("sex")
+    X_test_cpu = X_test.detach().cpu()
+    sex_from_X_test = np.rint(
+        X_test_cpu[:, sex_index].numpy()
+    ).astype(np.int64)
+    sex_from_list = np.asarray(sex_list, dtype=np.int64)
+    if not np.array_equal(sex_from_X_test, sex_from_list):
+        raise RuntimeError("sex_list is not aligned with the final X_test rows.")
+
+    predictions, gender, race, encodings = validate_inputs(
+        y_pred_cls.detach().cpu().numpy(),
+        sex_from_list,
+        X_test_cpu[:, race_index].numpy(),
+        url,
+    )
+    task2_metrics = compute_intersectional_metrics(
+        predictions, gender, race, encodings
+    )
+    task2_directory = Path("results") / "task2"
+    task2_csv = save_metrics_csv(
+        task2_metrics,
+        task2_directory / f"adult_seed{seed}_intersectional_metrics.csv",
+        seed,
+    )
+    task2_chart = save_comparison_chart(
+        task2_metrics,
+        task2_directory / f"adult_seed{seed}_intersectional_spd.png",
+    )
+
+    rates = task2_metrics["positive_rates"]
+    counts = task2_metrics["counts"]
+    print("Task 2 verified sex encoding:", encodings["sex"])
+    print("Task 2 verified race encoding:", encodings["race"])
+    for group_name in ("Male", "Female", "White", "Non-White"):
+        print(
+            f"Task 2 {group_name} positive prediction rate: "
+            f"{rates[group_name]} (n={counts[group_name]})"
+        )
+    print("Task 2 signed gender SPD:", task2_metrics["gender_signed_spd"])
+    print("Task 2 absolute gender SPD:", task2_metrics["gender_absolute_spd"])
+    print("Task 2 signed race SPD:", task2_metrics["race_signed_spd"])
+    print("Task 2 absolute race SPD:", task2_metrics["race_absolute_spd"])
+    for group_name in GROUP_ORDER:
+        print(
+            f"Task 2 {group_name}: PPR={rates[group_name]}, "
+            f"n={counts[group_name]}, "
+            f"signed SPD vs White Male="
+            f"{task2_metrics['subgroup_signed_spd'][group_name]}, "
+            f"absolute SPD="
+            f"{task2_metrics['subgroup_absolute_spd'][group_name]}"
+        )
+    print(
+        "Task 2 intersectional max-min gap:",
+        task2_metrics["intersectional_max_min_gap"],
+    )
+    print("Task 2 CSV:", task2_csv)
+    print("Task 2 chart:", task2_chart)

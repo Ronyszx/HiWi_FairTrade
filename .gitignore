@@ -7,3 +7,7 @@ results/*
 !results/task1/
 results/task1/*
 !results/task1/task1_summary.csv
+!results/task2/
+results/task2/*
+!results/task2/*.csv
+!results/task2/*.png

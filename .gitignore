@@ -11,3 +11,7 @@ results/task1/*
 results/task2/*
 !results/task2/*.csv
 !results/task2/*.png
+!results/task3/
+results/task3/*
+!results/task3/*.csv
+!results/task3/*.png

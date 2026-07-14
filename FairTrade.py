@@ -14,6 +14,15 @@ from intersectional_fairness import (
     save_metrics_csv,
     validate_inputs,
 )
+from multi_attribute_fairness import (
+    TASK3_REFERENCE_POINT,
+    binarize_adult_race,
+    combine_fairness_losses,
+    compute_attribute_metrics,
+    save_task3_comparison_chart,
+    save_task3_summary,
+    validate_client_sensitive_groups,
+)
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import average_precision_score
 
@@ -130,6 +139,8 @@ parser.add_argument("--device", type=str, default='auto',
                     help="Execution device. 'auto' prefers CUDA, then MPS, then CPU. Default is 'auto'.")
 parser.add_argument("--task2_evaluation", action="store_true",
                     help="Run the optional Adult intersectional fairness evaluation after training.")
+parser.add_argument("--task3_multi_attribute", action="store_true",
+                    help="Optimize Adult statistical parity jointly for gender and race.")
 
 # Parse the arguments
 args = parser.parse_args()
@@ -144,6 +155,12 @@ mobo_optimization_rounds = args.mobo_optimization_rounds
 distribution_type = args.distribution_type
 seed = args.seed
 task2_evaluation = args.task2_evaluation
+task3_multi_attribute = args.task3_multi_attribute
+
+if task2_evaluation and task3_multi_attribute:
+    parser.error(
+        "--task2_evaluation and --task3_multi_attribute cannot be used together."
+    )
 
 if task2_evaluation and (
     dataset_name != "adult" or distribution_type != "random"
@@ -151,6 +168,15 @@ if task2_evaluation and (
     parser.error(
         "--task2_evaluation requires --dataset_name adult "
         "and --distribution_type random."
+    )
+if task3_multi_attribute and (
+    dataset_name != "adult"
+    or fairness_notion != "stat_parity"
+    or distribution_type != "random"
+):
+    parser.error(
+        "--task3_multi_attribute requires --dataset_name adult, "
+        "--fairness_notion stat_parity, and --distribution_type random."
     )
 
 random.seed(seed)
@@ -183,7 +209,45 @@ else:
 
 bal_acc_list = []
 fairness_notion_list = []
+task3_bal_acc_list = []
+task3_gender_spd_list = []
+task3_race_spd_list = []
+task3_worst_spd_list = []
 clients_data,X_test, y_test, sex_list, column_names_list, ytest_potential = load_dataset(url,dataset_name, num_clients, sensitive_feature,distribution_type)
+
+task3_client_race = {}
+if task3_multi_attribute:
+    try:
+        race_index = column_names_list.index("race")
+        sex_index = column_names_list.index("sex")
+    except ValueError as error:
+        raise RuntimeError("Adult Task 3 requires race and sex columns.") from error
+
+    for client_name, client_data in clients_data.items():
+        client_x = client_data["X"].detach().cpu().numpy()
+        gender = np.rint(client_data["s"].detach().cpu().numpy()).astype(np.int64)
+        gender_from_x = np.rint(client_x[:, sex_index]).astype(np.int64)
+        if not np.array_equal(gender, gender_from_x):
+            raise RuntimeError(f"{client_name}: gender is not aligned with X rows.")
+        binary_race = binarize_adult_race(client_x[:, race_index])
+        gender, binary_race = validate_client_sensitive_groups(
+            gender, binary_race, client_name
+        )
+        task3_client_race[client_name] = torch.from_numpy(binary_race).float()
+
+    X_test_cpu = X_test.detach().cpu()
+    task3_test_gender = np.asarray(sex_list, dtype=np.int64)
+    task3_test_raw_race = X_test_cpu[:, race_index].numpy()
+    task3_test_binary_race = binarize_adult_race(task3_test_raw_race)
+    test_gender_from_x = np.rint(
+        X_test_cpu[:, sex_index].numpy()
+    ).astype(np.int64)
+    if not np.array_equal(task3_test_gender, test_gender_from_x):
+        raise RuntimeError("Adult test gender is not aligned with X_test rows.")
+    task3_test_gender, task3_test_binary_race = validate_client_sensitive_groups(
+        task3_test_gender, task3_test_binary_race, "Adult test split"
+    )
+
 X_test = X_test.to(device)
 y_test = y_test.to(device)
 global_model = create_model(X_test.shape[1])
@@ -212,6 +276,15 @@ def calculate_weights(targets, cost_false_negatives=5):
     # Give higher weight to the positive samples because false negatives cost more
     return torch.where(targets == 1, cost_false_negatives, cost_false_positives)
 
+
+def task3_metrics_for(predictions):
+    return compute_attribute_metrics(
+        predictions.detach().cpu().numpy(),
+        task3_test_gender,
+        task3_test_binary_race,
+    )
+
+
 def evaluate(alpha = 100, lr=0.001, cost_false_negatives=5):
     # Initialize a list to store the parameters of each model
     params = [torch.zeros_like(param.data) for param in global_model.parameters()]
@@ -226,7 +299,11 @@ def evaluate(alpha = 100, lr=0.001, cost_false_negatives=5):
         model1 = model1.to(device)
         model1.load_state_dict(global_model.state_dict())
         optimizer1 = optim.Adam(model1.parameters(), lr=lr)
-        if fairness_notion == 'stat_parity':
+        if task3_multi_attribute:
+            gender_dp_loss = DemographicParityLoss(alpha=alpha)
+            race_dp_loss = DemographicParityLoss(alpha=alpha)
+            race1 = task3_client_race[client_name].to(device)
+        elif fairness_notion == 'stat_parity':
             dp_loss = DemographicParityLoss(alpha=alpha)
         elif fairness_notion == 'ate':
             dp_loss = AverageTreatmentEffectLoss(alpha=alpha)
@@ -240,7 +317,12 @@ def evaluate(alpha = 100, lr=0.001, cost_false_negatives=5):
             X1_cpu = X1.cpu()
             X1_dataframe = pd.DataFrame(X1_cpu.numpy(), columns=column_names_list)
             y_pred_numpy = y_pred.clone().cpu()
-            fairness_loss = dp_loss(X1, y_pred, s1,y1_potential)
+            if task3_multi_attribute:
+                gender_loss = gender_dp_loss(X1, y_pred, s1, y1_potential)
+                race_loss = race_dp_loss(X1, y_pred, race1, y1_potential)
+                fairness_loss = combine_fairness_losses(gender_loss, race_loss)
+            else:
+                fairness_loss = dp_loss(X1, y_pred, s1,y1_potential)
             fairness_loss = fairness_loss.to(device)
             loss = criterion(y_pred.view(-1), y1) + fairness_loss
             loss.backward()
@@ -264,14 +346,17 @@ def evaluate(alpha = 100, lr=0.001, cost_false_negatives=5):
         y_pred = global_model(X_test).squeeze()
         y_pred_cls = y_pred.round()
         sensitivity,specificity,bal_acc,G_mean,FN_rate,FP_rate,Precision,f1_sc, acc, auc = all_metrics(y_test.cpu(),y_pred.cpu())
-        stat_parity = find_statistical_parity_score(sex_list, y_test,y_pred_cls)
-        X_test_cpu = X_test.cpu()
-        Xtest_dataframe = pd.DataFrame(X_test_cpu.numpy(), columns=column_names_list)
-        y_pred_numpy = y_pred.clone().cpu()
-        #ytest_potential = find_potential_outcomes(Xtest_dataframe,y_pred_numpy.round().detach().numpy())
-        ate = find_ate_2(y_pred_cls.cpu(), ytest_potential, sex_list)#0 means female-protected attribute
-        #acc = (y_pred_cls == y_test).float().mean()
-        auprc = average_precision_score(y_test.cpu(), y_pred.cpu())
+        if task3_multi_attribute:
+            attribute_metrics = task3_metrics_for(y_pred_cls)
+        else:
+            stat_parity = find_statistical_parity_score(sex_list, y_test,y_pred_cls)
+            X_test_cpu = X_test.cpu()
+            Xtest_dataframe = pd.DataFrame(X_test_cpu.numpy(), columns=column_names_list)
+            y_pred_numpy = y_pred.clone().cpu()
+            #ytest_potential = find_potential_outcomes(Xtest_dataframe,y_pred_numpy.round().detach().numpy())
+            ate = find_ate_2(y_pred_cls.cpu(), ytest_potential, sex_list)#0 means female-protected attribute
+            #acc = (y_pred_cls == y_test).float().mean()
+            auprc = average_precision_score(y_test.cpu(), y_pred.cpu())
         print(f'Communication round {round+1}/{communication_rounds}')
         if communication_rounds % 1 == 0:
             print(f'Test accuracy: {acc.item()}')
@@ -279,9 +364,19 @@ def evaluate(alpha = 100, lr=0.001, cost_false_negatives=5):
             print("specificity: %s" % specificity)
             print("BalanceACC: %s" % bal_acc)
             print("G_mean: %s" % G_mean)
-            print("statistical parity: %s" % stat_parity)
-            print("ate: %s" % ate)
-    if fairness_notion == 'stat_parity':
+            if task3_multi_attribute:
+                print("Task 3 signed gender SPD: %s" % attribute_metrics["gender_signed_spd"])
+                print("Task 3 signed race SPD: %s" % attribute_metrics["race_signed_spd"])
+                print("Task 3 worst absolute SPD: %s" % attribute_metrics["worst_absolute_spd"])
+            else:
+                print("statistical parity: %s" % stat_parity)
+                print("ate: %s" % ate)
+    if task3_multi_attribute:
+        objectives = torch.tensor(
+            [[-attribute_metrics["worst_absolute_spd"], bal_acc]],
+            dtype=torch.float32,
+        )
+    elif fairness_notion == 'stat_parity':
         objectives = torch.tensor([[-stat_parity, bal_acc]]) #the two objectives
     elif fairness_notion == 'ate':
         objectives = torch.tensor([[-ate, bal_acc]]) #the two objectives
@@ -318,8 +413,17 @@ for round in range(communication_rounds):
         objectives = evaluate(alpha)
     else:
         objectives = evaluate(updated_alpha, updated_lr)
-    fairness_notion_list.append(objectives[0,0].item())
-    bal_acc_list.append(objectives[0,1].item())
+    if task3_multi_attribute:
+        with torch.no_grad():
+            round_predictions = global_model(X_test).squeeze().round()
+        round_metrics = task3_metrics_for(round_predictions)
+        task3_bal_acc_list.append(objectives[0,1].item())
+        task3_gender_spd_list.append(round_metrics["gender_signed_spd"])
+        task3_race_spd_list.append(round_metrics["race_signed_spd"])
+        task3_worst_spd_list.append(round_metrics["worst_absolute_spd"])
+    else:
+        fairness_notion_list.append(objectives[0,0].item())
+        bal_acc_list.append(objectives[0,1].item())
     
     x_input =  torch.tensor([100,0.001], dtype=torch.float32)#input to the optimization process
     x_input = x_input.view(1, -1)
@@ -328,10 +432,15 @@ for round in range(communication_rounds):
     for i in range(mobo_optimization_rounds):  # number of rounds of mobo optimization
         print("Global optimization round:", i)
         fit_gpytorch_mll(mll)
-        ref_point=torch.tensor([0.0001, 0.001])
+        if task3_multi_attribute:
+            ref_point = objectives.new_tensor(TASK3_REFERENCE_POINT)
+            acquisition_ref_point = ref_point
+        else:
+            ref_point=torch.tensor([0.0001, 0.001])
+            acquisition_ref_point=torch.tensor([0.001, 0.001])
         acq_func = qExpectedHypervolumeImprovement(
             model=model.float(),
-            ref_point=torch.tensor([0.001, 0.001]),#problem.ref_point.tolist(),  # use known reference point
+            ref_point=acquisition_ref_point,#problem.ref_point.tolist(),  # use known reference point
             sampler=SobolQMCNormalSampler(sample_shape=torch.Size([128])),
             # define an objective that specifies which outcomes are the objectives
             objective=IdentityMCMultiOutputObjective(outcomes=[0, 1]),
@@ -388,41 +497,58 @@ with torch.no_grad():
         y_pred = global_model(X_test).squeeze()
         y_pred_cls = y_pred.round()
         sensitivity,specificity,bal_acc,G_mean,FN_rate,FP_rate,Precision,f1_sc, acc, auc = all_metrics(y_test.cpu(),y_pred.cpu())
-        stat_parity = find_statistical_parity_score(sex_list, y_test,y_pred_cls)
-        X_test_cpu = X_test.cpu()
-        Xtest_dataframe = pd.DataFrame(X_test_cpu.numpy(), columns=column_names_list)
-        y_pred_numpy = y_pred.clone().cpu()
-        #ytest_potential = find_potential_outcomes(Xtest_dataframe,y_pred_numpy.round().detach().numpy())
-        ate = find_ate_2(y_pred_cls.cpu(), ytest_potential, sex_list)#0 means female-protected attribute
-        #acc = (y_pred_cls == y_test).float().mean()
-        auprc = average_precision_score(y_test.cpu(), y_pred.cpu())
+        if task3_multi_attribute:
+            final_task3_metrics = task3_metrics_for(y_pred_cls)
+            final_task3_metrics["balanced_accuracy"] = float(bal_acc)
+        else:
+            stat_parity = find_statistical_parity_score(sex_list, y_test,y_pred_cls)
+            X_test_cpu = X_test.cpu()
+            Xtest_dataframe = pd.DataFrame(X_test_cpu.numpy(), columns=column_names_list)
+            y_pred_numpy = y_pred.clone().cpu()
+            #ytest_potential = find_potential_outcomes(Xtest_dataframe,y_pred_numpy.round().detach().numpy())
+            ate = find_ate_2(y_pred_cls.cpu(), ytest_potential, sex_list)#0 means female-protected attribute
+            #acc = (y_pred_cls == y_test).float().mean()
+            auprc = average_precision_score(y_test.cpu(), y_pred.cpu())
         print(f'Test accuracy: {acc.item()}')
         print("sensitivity: %s" % sensitivity)
         print("specificity: %s" % specificity)
         print("BalanceACC: %s" % bal_acc)
         print("G_mean: %s" % G_mean)
-        print("statistical parity: %s" % stat_parity)
-        print("ate: %s" % ate)
+        if task3_multi_attribute:
+            print("Task 3 final signed gender SPD: %s" % final_task3_metrics["gender_signed_spd"])
+            print("Task 3 final signed race SPD: %s" % final_task3_metrics["race_signed_spd"])
+            print("Task 3 final worst absolute SPD: %s" % final_task3_metrics["worst_absolute_spd"])
+        else:
+            print("statistical parity: %s" % stat_parity)
+            print("ate: %s" % ate)
         
 
 
-destination = Path('results') / dataset_name
-destination.mkdir(parents=True, exist_ok=True)
-
-if distribution_type == 'random':
-    if fairness_notion == 'stat_parity':
-        np.save(destination / f'{num_clients}_bal_acc_stat_parity.npy', np.array(bal_acc_list))
-        np.save(destination / f'{num_clients}_stat_parity.npy', np.array(fairness_notion_list))
-    else:
-        np.save(destination / f'{num_clients}_bal_acc_ate.npy', np.array(bal_acc_list))
-        np.save(destination / f'{num_clients}_ate.npy', np.array(fairness_notion_list))
+if task3_multi_attribute:
+    task3_directory = Path('results') / 'task3'
+    task3_directory.mkdir(parents=True, exist_ok=True)
+    np.save(task3_directory / f'adult_seed{seed}_balanced_accuracy.npy', np.array(task3_bal_acc_list))
+    np.save(task3_directory / f'adult_seed{seed}_gender_signed_spd.npy', np.array(task3_gender_spd_list))
+    np.save(task3_directory / f'adult_seed{seed}_race_signed_spd.npy', np.array(task3_race_spd_list))
+    np.save(task3_directory / f'adult_seed{seed}_worst_absolute_spd.npy', np.array(task3_worst_spd_list))
 else:
-    if fairness_notion == 'stat_parity':
-        np.save(destination / f'{num_clients}_attr_bal_acc_stat_parity.npy', np.array(bal_acc_list))
-        np.save(destination / f'{num_clients}_attr_stat_parity.npy', np.array(fairness_notion_list))
+    destination = Path('results') / dataset_name
+    destination.mkdir(parents=True, exist_ok=True)
+
+    if distribution_type == 'random':
+        if fairness_notion == 'stat_parity':
+            np.save(destination / f'{num_clients}_bal_acc_stat_parity.npy', np.array(bal_acc_list))
+            np.save(destination / f'{num_clients}_stat_parity.npy', np.array(fairness_notion_list))
+        else:
+            np.save(destination / f'{num_clients}_bal_acc_ate.npy', np.array(bal_acc_list))
+            np.save(destination / f'{num_clients}_ate.npy', np.array(fairness_notion_list))
     else:
-        np.save(destination / f'{num_clients}_attr_bal_acc_ate.npy', np.array(bal_acc_list))
-        np.save(destination / f'{num_clients}_attr_ate.npy', np.array(fairness_notion_list))
+        if fairness_notion == 'stat_parity':
+            np.save(destination / f'{num_clients}_attr_bal_acc_stat_parity.npy', np.array(bal_acc_list))
+            np.save(destination / f'{num_clients}_attr_stat_parity.npy', np.array(fairness_notion_list))
+        else:
+            np.save(destination / f'{num_clients}_attr_bal_acc_ate.npy', np.array(bal_acc_list))
+            np.save(destination / f'{num_clients}_attr_ate.npy', np.array(fairness_notion_list))
 
 
 if task2_evaluation:
@@ -484,3 +610,47 @@ if task2_evaluation:
     )
     print("Task 2 CSV:", task2_csv)
     print("Task 2 chart:", task2_chart)
+
+
+if task3_multi_attribute:
+    predictions, gender, race, encodings = validate_inputs(
+        y_pred_cls.detach().cpu().numpy(),
+        task3_test_gender,
+        task3_test_raw_race,
+        url,
+    )
+    task3_intersectional_metrics = compute_intersectional_metrics(
+        predictions, gender, race, encodings
+    )
+    task3_intersectional_csv = save_metrics_csv(
+        task3_intersectional_metrics,
+        task3_directory / f"adult_seed{seed}_intersectional_metrics.csv",
+        seed,
+    )
+    task3_summary = save_task3_summary(
+        final_task3_metrics,
+        task3_intersectional_metrics,
+        task3_directory / f"adult_seed{seed}_multi_attribute_summary.csv",
+        Path("results") / "task1" / "task1_summary.csv",
+        Path("results") / "task2" / "adult_seed42_intersectional_metrics.csv",
+        {
+            "seed": seed,
+            "device": str(device),
+            "clients": num_clients,
+            "epochs": epochs,
+            "communication_rounds": communication_rounds,
+            "mobo_rounds": mobo_optimization_rounds,
+        },
+    )
+    task3_chart = save_task3_comparison_chart(
+        task3_summary,
+        task3_directory / f"adult_seed{seed}_task1_vs_task3.png",
+    )
+
+    print("Task 3 final balanced accuracy:", final_task3_metrics["balanced_accuracy"])
+    print("Task 3 final absolute gender SPD:", final_task3_metrics["gender_absolute_spd"])
+    print("Task 3 final absolute race SPD:", final_task3_metrics["race_absolute_spd"])
+    print("Task 3 final intersectional max-min gap:", task3_intersectional_metrics["intersectional_max_min_gap"])
+    print("Task 3 summary:", task3_summary)
+    print("Task 3 intersectional CSV:", task3_intersectional_csv)
+    print("Task 3 comparison chart:", task3_chart)

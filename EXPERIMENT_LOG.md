@@ -162,3 +162,47 @@ The gender SPD is only 2.84 percentage points, but White and Non-White positive 
 - Chart SHA-256: `75f2d6b32b833805c84ffa01265f75e3e85c495dd7826f564d984d45489d7f9d`
 
 The full run retained the known nonfatal BoTorch warnings: 301 random initial-candidate fallbacks, 21 GP-fit optimization failures, six candidate-generation optimization failures, and 12 Cholesky jitter warnings. Task 2 introduced no additional runtime warning or training failure. `pip check` continues to report the pre-existing `torch 2.0.1 is not supported on this platform` warning.
+
+## Task 3 - Multi-Attribute Implementation and Smoke Test
+
+Purpose: Extend the opt-in Adult experiment so gender and race both influence local fairness training, while MOBO conservatively optimizes the worse of their two absolute evaluation disparities.
+
+Status: Implementation and short smoke verification completed on 2026-07-13. The full `15 epochs / 50 communication rounds / 10 MOBO rounds` Task 3 experiment has not been run, so no final research comparison is claimed here.
+
+### Design
+
+- Adult race is binarized as `White=1` and `Non-White=0`; gender remains `Male=1` and `Female=0`.
+- Every client is checked for both gender groups, both binary race groups, and row alignment with its feature matrix before training.
+- Local differentiable surrogate: `0.5 * gender_dp_loss + 0.5 * race_dp_loss` on continuous model outputs.
+- Evaluation SPD uses rounded predictions: `PPR(Male) - PPR(Female)` and `PPR(White) - PPR(Non-White)`.
+- MOBO objectives: `[-max(abs(gender_spd), abs(race_spd)), balanced_accuracy]`.
+- qEHVI reference point: `[-1.01, -0.01]`, strictly dominated by feasible Task 3 outcomes.
+- Each history array receives only the initial evaluation for a communication round. Candidate evaluations are used internally by MOBO and are not appended.
+- Final intersectional metrics are computed once after training using the Task 2 evaluator.
+
+The local surrogate and reported SPD are related fairness measures but are not numerically identical. The former must remain differentiable for gradient training; the latter is a black-box metric calculated from binary decisions.
+
+### Smoke verification
+
+Configuration: Adult, three clients, one client epoch, two communication rounds, one MOBO round, random distribution, seed 42, CPU, and `--task3_multi_attribute`.
+
+| Metric | Final smoke value |
+| --- | ---: |
+| Balanced accuracy | 0.5000000000 |
+| Signed gender SPD | 0.0000000000 |
+| Signed race SPD | 0.0000000000 |
+| Worst absolute SPD | 0.0000000000 |
+| Intersectional max-min gap | 0.0000000000 |
+
+The smoke model predicted the positive class for every test row. Its zero disparity therefore does not demonstrate a useful fair model: balanced accuracy remained `0.5`. This run verifies execution and artifacts only.
+
+Start-of-round histories, each with exactly two finite values:
+
+- Balanced accuracy: `[0.4954027832, 0.5000000000]`
+- Signed gender SPD: `[-0.0054320406, 0.0000000000]`
+- Signed race SPD: `[-0.0661871693, 0.0000000000]`
+- Worst absolute SPD: `[0.0661871693, 0.0000000000]`
+
+Verification: `21 passed` with `.venv/bin/python -m pytest -q`; all Python files compiled; the final summary and intersectional CSVs parsed; and the comparison chart was a valid non-empty PNG. The existing Task 1 balanced-accuracy and SPD arrays retained SHA-256 hashes `2d51b7374e5dce81cac53cf577e246a559f16be5de4d71d3680e4f67048cd376` and `3ad207641e555121103e96fc6c7a6667feab623872a0eac8bd556f7d329b74ef`.
+
+The smoke run retained the baseline BoTorch float32, unscaled-input, unstandardized-output, and nonfatal SciPy optimization warnings. The sandbox also used a temporary writable Matplotlib cache because the default home cache was unavailable. The existing Sigmoid/loss mismatch, second constraint sigmoid, MOBO test-split use, and repeated candidate evaluation remain unchanged for a direct Task 1 comparison.

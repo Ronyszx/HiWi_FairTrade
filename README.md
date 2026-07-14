@@ -80,7 +80,9 @@ Predictive performance closely matches the Adult R3C demographic-parity result i
 
 ### Task 2 intersectional fairness evaluation
 
-Task 2 is an optional post-training evaluation and does not change local training, aggregation, fairness loss, MOBO, or the Task 1 result arrays. Enable it on the same Adult baseline with:
+Task 2 is an optional post-training evaluation and does not change local training, aggregation, fairness loss, MOBO, or the Task 1 result arrays. For a plain-language explanation of the objective, formulas, code flow, tests, and results, see [TASK2_BEGINNER_GUIDE.md](TASK2_BEGINNER_GUIDE.md).
+
+Enable it on the same Adult baseline with:
 
 ```bash
 python FairTrade.py \
@@ -120,6 +122,38 @@ The full seed-42 run produced:
 | Intersectional max-min gap | 0.1921 | 6,513 |
 
 The aggregate gender gap is relatively small, but the race and intersectional gaps are much larger. White Male has the highest intersectional positive prediction rate (`0.4961`), while Non-White Female has the lowest (`0.3040`). This is the central Task 2 finding: a single aggregate gender metric can conceal substantially different outcomes across combined gender-race groups.
+
+### Task 3 multi-attribute fairness optimization
+
+Task 3 responds to the Task 2 finding by making gender and race part of training and optimization together. It is opt-in, Adult-specific, and leaves Task 1 and Task 2 unchanged when `--task3_multi_attribute` is omitted. Run the full seed-42 configuration with:
+
+```bash
+python FairTrade.py \
+  --dataset_name adult \
+  --fairness_notion stat_parity \
+  --num_clients 3 \
+  --epochs 15 \
+  --communication_rounds 50 \
+  --mobo_optimization_rounds 10 \
+  --distribution_type random \
+  --seed 42 \
+  --device cpu \
+  --task3_multi_attribute
+```
+
+Each client uses the differentiable local surrogate `0.5 * gender_dp_loss + 0.5 * race_dp_loss`, so both sensitive attributes contribute gradients. MOBO evaluates rounded test predictions with `gender_spd = PPR(Male) - PPR(Female)` and `race_spd = PPR(White) - PPR(Non-White)`, then maximizes `-max(abs(gender_spd), abs(race_spd))` together with balanced accuracy. These are different quantities: the local surrogate works on continuous model outputs during training, while reported SPD works on rounded predictions. Task 3 uses qEHVI reference point `[-1.01, -0.01]`, which is below every feasible Task 3 objective in both dimensions.
+
+The run writes only to `results/task3/`. The four `.npy` arrays store one initial evaluation per communication round, before that round's candidate loop; candidate evaluations are intentionally excluded. Final-model metrics are separate:
+
+- `adult_seed42_balanced_accuracy.npy`
+- `adult_seed42_gender_signed_spd.npy`
+- `adult_seed42_race_signed_spd.npy`
+- `adult_seed42_worst_absolute_spd.npy`
+- `adult_seed42_multi_attribute_summary.csv`
+- `adult_seed42_intersectional_metrics.csv`
+- `adult_seed42_task1_vs_task3.png`
+
+The default `15/50/10` experiment is substantially longer than the smoke test. A full Task 3 result has not yet been recorded in this README. For a direct Task 1 comparison, the implementation deliberately preserves the existing model Sigmoid, `BCEWithLogitsLoss`, the additional sigmoid inside `ConstraintLoss`, MOBO use of `X_test`, repeated candidate-loop behavior, and the final `0.6/0.4` weighted selection. These are methodological limitations to report separately, not silent Task 3 fixes.
 
 The original repository's Bank commands are preserved below for reference.
 

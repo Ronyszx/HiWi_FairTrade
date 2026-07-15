@@ -80,7 +80,7 @@ Predictive performance closely matches the Adult R3C demographic-parity result i
 
 ### Task 2 intersectional fairness evaluation
 
-Task 2 is an optional post-training evaluation and does not change local training, aggregation, fairness loss, MOBO, or the Task 1 result arrays. For a plain-language explanation of the objective, formulas, code flow, tests, and results, see [TASK2_BEGINNER_GUIDE.md](TASK2_BEGINNER_GUIDE.md).
+Task 2 is an optional post-training evaluation and does not change local training, aggregation, fairness loss, MOBO, or the Task 1 result arrays.
 
 Enable it on the same Adult baseline with:
 

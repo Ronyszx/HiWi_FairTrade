@@ -1,12 +1,12 @@
 metric_name,group,metric_value,positive_prediction_rate,signed_spd,absolute_spd,sample_count,reference_group,seed,dataset_split,notes
-positive_prediction_rate,Male,1.0000000000,1.0000000000,,,4360,,42,"Adult test split (20%, random_state=42)",
-positive_prediction_rate,Female,1.0000000000,1.0000000000,,,2153,,42,"Adult test split (20%, random_state=42)",
-positive_prediction_rate,White,1.0000000000,1.0000000000,,,5568,,42,"Adult test split (20%, random_state=42)",
-positive_prediction_rate,Non-White,1.0000000000,1.0000000000,,,945,,42,"Adult test split (20%, random_state=42)",
-gender_spd,Male vs Female,0.0000000000,,0.0000000000,0.0000000000,6513,Male,42,"Adult test split (20%, random_state=42)",Signed SPD = PPR(Male) - PPR(Female).
-race_spd,White vs Non-White,0.0000000000,,0.0000000000,0.0000000000,6513,White,42,"Adult test split (20%, random_state=42)",Signed SPD = PPR(White) - PPR(Non-White).
-intersectional_positive_prediction_rate,White Male,1.0000000000,1.0000000000,0.0000000000,0.0000000000,3836,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
-intersectional_positive_prediction_rate,White Female,1.0000000000,1.0000000000,0.0000000000,0.0000000000,1732,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
-intersectional_positive_prediction_rate,Non-White Male,1.0000000000,1.0000000000,0.0000000000,0.0000000000,524,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
-intersectional_positive_prediction_rate,Non-White Female,1.0000000000,1.0000000000,0.0000000000,0.0000000000,421,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
-intersectional_max_min_gap,White Male vs Non-White Female,0.0000000000,,,,6513,,42,"Adult test split (20%, random_state=42)",Maximum intersectional subgroup PPR minus minimum subgroup PPR.
+positive_prediction_rate,Male,0.4619266055,0.4619266055,,,4360,,42,"Adult test split (20%, random_state=42)",
+positive_prediction_rate,Female,0.4514630748,0.4514630748,,,2153,,42,"Adult test split (20%, random_state=42)",
+positive_prediction_rate,White,0.4585129310,0.4585129310,,,5568,,42,"Adult test split (20%, random_state=42)",
+positive_prediction_rate,Non-White,0.4582010582,0.4582010582,,,945,,42,"Adult test split (20%, random_state=42)",
+gender_spd,Male vs Female,0.0104635307,,0.0104635307,0.0104635307,6513,Male,42,"Adult test split (20%, random_state=42)",Signed SPD = PPR(Male) - PPR(Female).
+race_spd,White vs Non-White,0.0003118728,,0.0003118728,0.0003118728,6513,White,42,"Adult test split (20%, random_state=42)",Signed SPD = PPR(White) - PPR(Non-White).
+intersectional_positive_prediction_rate,White Male,0.4679353493,0.4679353493,0.0000000000,0.0000000000,3836,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
+intersectional_positive_prediction_rate,White Female,0.4376443418,0.4376443418,0.0302910075,0.0302910075,1732,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
+intersectional_positive_prediction_rate,Non-White Male,0.4179389313,0.4179389313,0.0499964180,0.0499964180,524,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
+intersectional_positive_prediction_rate,Non-White Female,0.5083135392,0.5083135392,-0.0403781899,0.0403781899,421,White Male,42,"Adult test split (20%, random_state=42)",Subgroup signed SPD = PPR(White Male) - PPR(group).
+intersectional_max_min_gap,Non-White Female vs Non-White Male,0.0903746079,,,,6513,,42,"Adult test split (20%, random_state=42)",Maximum intersectional subgroup PPR minus minimum subgroup PPR.

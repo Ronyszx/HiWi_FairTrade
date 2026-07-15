@@ -1,6 +1,6 @@
 # FairTrade: Achieving Pareto-Optimal Trade-offs Between Balanced Accuracy and Fairness in Federated Learning
 As Federated Learning (FL) gains prominence in distributed machine learning applications, achieving fairness without compromising predictive performance becomes paramount. The data being gathered from distributed clients in an FL environment often leads to class imbalance. In such scenarios, balanced accuracy rather than accuracy is the true representation of model performance. However, most state-of-the-art fair FL methods report accuracy as the measure of performance,  which can lead to misguided interpretations of the model's effectiveness to mitigate discrimination. To the best of our knowledge, this work presents the first attempt towards achieving Pareto-optimal trade-offs between balanced accuracy and fairness in a federated environment (FairTrade). By utilizing multi-objective optimization, the framework negotiates the intricate balance between model's balanced accuracy and fairness. The framework's agnostic design adeptly accommodates both statistical and causal fairness notions, ensuring its adaptability across diverse FL contexts. We provide empirical evidence of our novel framework's efficacy through extensive experiments on five real-world datasets and comparisons with six competing baselines. The empirical results underscore the significant potential of our framework in improving the trade-off between fairness and balanced accuracy in FL applications.
-## The datsets used in this project
+## The datasets used in this project
 * [Adult Census](https://archive.ics.uci.edu/dataset/2/adult)
 * [Bank Marketing](https://archive.ics.uci.edu/dataset/222/bank+marketing)
 * [Default](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients)
@@ -17,27 +17,51 @@ The `datasets` directory contains all the datasets used in this project. Below i
 
 ### FairTrade main scripts
 The following scripts constitute the complete methodology of FairTrade
-- `Fairtrade-crypten.py`: Main script for the 'FairTrade' framework that orchestrates the fairness aware federated learning process on different datasets with secure multiparty protocol.
-- `Fairtrade.py`: Main script for the 'FairTrade' framework that orchestrates the fairness aware federated learning process on different datasets without secure multiparty protocol.
+- `FairTrade-crypten.py`: Main script for the 'FairTrade' framework that orchestrates the fairness aware federated learning process on different datasets with secure multiparty protocol.
+- `FairTrade.py`: Main script for the 'FairTrade' framework that orchestrates the fairness aware federated learning process on different datasets without secure multiparty protocol.
 
 - `constraint.py`: The script contains the implementation of fairness constraints for discrimination mitigation.
 
 ## HiWi Challenge Reproduction
 
-The HiWi challenge baseline uses the Adult dataset with gender (`sex`) as the sensitive attribute. The commands below use CPU explicitly so that the reported run does not depend on CUDA or Apple MPS availability.
+The HiWi challenge baseline uses the Adult dataset with gender (`sex`) as the sensitive attribute. The verified setup uses Python 3.11 and CPU execution so that it does not depend on CUDA or Apple MPS availability. Run every command from the repository root.
 
-### Environment setup
+The commands below use Bash or Zsh on macOS/Linux. On Windows, use WSL2 and follow the Linux commands; native Windows execution has not been verified.
+
+### 1. Clone the challenge branch
 
 ```bash
-python3 -m venv .venv
+git clone --branch rony-challenge-work --single-branch https://github.com/Ronyszx/HiWi_FairTrade.git
+cd HiWi_FairTrade
+```
+
+Specifying the branch is important because the challenge changes are developed on `rony-challenge-work`.
+
+### 2. Create the verified Python environment
+
+Install Python 3.11 first, then confirm that `python3.11` resolves to that interpreter:
+
+```bash
+python3.11 --version
+python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
+python -m pip install --upgrade pip setuptools wheel
 SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True python -m pip install -r requirements.txt
 ```
 
-The environment variable is required because CrypTen declares the deprecated `sklearn` package name. The project itself uses `scikit-learn`.
+The expected interpreter is Python 3.11; the recorded run used Python 3.11.15. Other Python versions are outside the verified setup. The environment variable is required because CrypTen declares the deprecated `sklearn` package name. The project itself uses `scikit-learn`.
 
-### Adult smoke test
+### 3. Verify the installation
+
+```bash
+python -c "import torch, torchvision, numpy, scipy, pandas, sklearn, botorch, gpytorch, crypten, psmpy, matplotlib; print('Core imports: OK')"
+python FairTrade.py --help
+python -m pytest -q
+```
+
+The verified environment prints `Core imports: OK`, displays the FairTrade command-line options, and passes all 22 tests. Nine pandas/NumPy deprecation warnings are currently expected during the tests and do not indicate a failure.
+
+### 4. Run the Adult smoke test
 
 ```bash
 python FairTrade.py \
@@ -52,7 +76,9 @@ python FairTrade.py \
   --device cpu
 ```
 
-### Adult default reproduction
+A successful smoke test prints `Selected device: cpu`, completes two communication rounds, prints final evaluation metrics, and writes the baseline history arrays under `results/adult/`. BoTorch numerical and scaling warnings may appear; they are nonfatal if the run reaches the final metrics.
+
+### 5. Run the full Adult baseline reproduction
 
 ```bash
 python FairTrade.py \
@@ -166,27 +192,46 @@ The completed seed-42 CPU run produced:
 
 For a direct Task 1 comparison, the implementation deliberately preserves the existing model Sigmoid, `BCEWithLogitsLoss`, the additional sigmoid inside `ConstraintLoss`, MOBO use of `X_test`, repeated candidate-loop behavior, and the final `0.6/0.4` weighted selection. Detailed results and limitations are recorded in [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md).
 
-The original repository's Bank commands are preserved below for reference.
+### Troubleshooting
 
-## Running the FairTrade-crypten.py Script
+- **Wrong Python version:** delete the incomplete `.venv`, install Python 3.11, and recreate the environment with `python3.11 -m venv .venv`.
+- **`No module named ...`:** confirm that the prompt starts with `(.venv)` or run `source .venv/bin/activate` again.
+- **Deprecated `sklearn` installation error:** use the complete installation command above, including `SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True`.
+- **Dataset file not found:** run the command from the `HiWi_FairTrade` repository root. The datasets are already included under `datasets/` and do not need to be downloaded separately.
+- **CUDA or MPS unavailable:** use `--device cpu`. Explicit unavailable devices intentionally produce a clear parser error.
+- **macOS ARM `pip check` warning:** the verified environment reports `torch 2.0.1 is not supported on this platform`, although Torch and TorchVision import and the CPU runs complete successfully. Treat other dependency errors as unexpected.
+- **BoTorch warnings:** float32, unscaled-input, unstandardized-output, and occasional optimization warnings were nonfatal in the recorded experiments. Task 3 additionally records and recovers from `ModelFittingError` by retaining the previous valid hyperparameters.
+- **Long execution:** run the two-round smoke test before starting a 50-round reproduction. Task 2 and Task 3 commands perform training; they are not artifact-only viewers.
+- **Different final decimals:** seed 42 controls Python, NumPy, and PyTorch randomness, but exact bit-for-bit agreement is not guaranteed across operating systems, hardware, or numerical-library builds.
+
+## Upstream Examples (Not Challenge-Verified)
+
+The original Bank and CrypTen examples are preserved for reference. The HiWi work verified the Adult `FairTrade.py` CPU path; these upstream examples were not rerun as part of the challenge.
+
+### Running the FairTrade-crypten.py Script
 
 To run the `FairTrade-crypten.py` script with the default settings, you can use the following command:
 
 ```bash
 python FairTrade-crypten.py --fairness_notion 'stat_parity' --num_clients 3 --dataset_name 'bank' --epochs 15 --communication_rounds 50 --mobo_optimization_rounds 10 --distribution_type 'random'
 ```
-## Running the FairTrade.py Script
+
+### Running the FairTrade.py Script
+
 To run the `FairTrade.py` script with the default settings, you can use the following command:
 
 ```bash
 python FairTrade.py --fairness_notion 'stat_parity' --num_clients 3 --dataset_name 'bank' --epochs 15 --communication_rounds 50 --mobo_optimization_rounds 10 --distribution_type 'random'
 ```
-## Prerequisites
 
-Before running the script, ensure you have the following Python libraries installed:
+## Pinned Dependency Versions
+
+The installation command uses `requirements.txt` to install these versions automatically:
 
 - torch==2.0.1
 - torchvision==0.15.2
+- numpy==1.26.4
+- scipy==1.17.1
 - scikit-learn==1.2.2
 - psmpy==0.3.16
 - pandas==1.5.3

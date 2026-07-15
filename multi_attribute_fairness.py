@@ -120,6 +120,25 @@ def save_task3_summary(
         "local_fairness_loss": "0.5 * gender_dp_loss + 0.5 * race_dp_loss",
         "mobo_fairness_objective": "-max(abs(gender_spd), abs(race_spd))",
     }
+    failures = metadata.get("gp_fit_failures", [])
+
+    def failure_values(key):
+        values = ";".join(str(failure[key]) for failure in failures)
+        return values or "none"
+
+    common.update({
+        "gp_fit_failure_count": len(failures),
+        "gp_fit_failure_rounds": failure_values("communication_round"),
+        "gp_fit_failure_mobo_iterations": failure_values("mobo_iteration"),
+        "gp_fit_failure_mobo_indices": failure_values("mobo_iteration_index"),
+        "gp_fit_failure_types": failure_values("exception_type"),
+        "gp_fit_retained_alphas": failure_values("retained_alpha"),
+        "gp_fit_retained_learning_rates": failure_values("retained_learning_rate"),
+        "gp_fit_fallback_action": (
+            "retain previous valid alpha/lr; skip remaining MOBO iterations in "
+            "that communication round; continue with the next round"
+        ),
+    })
     total = metrics["counts"]["male"] + metrics["counts"]["female"]
     rows = [{
         "record_type": "final_metric", "metric": name,

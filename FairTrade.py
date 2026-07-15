@@ -40,6 +40,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 import numpy as np
 from botorch.models import SingleTaskGP, ModelListGP
+from botorch.exceptions.errors import ModelFittingError
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from botorch.fit import fit_gpytorch_model
 from gpytorch.mlls import ExactMarginalLogLikelihood
@@ -213,6 +214,11 @@ task3_bal_acc_list = []
 task3_gender_spd_list = []
 task3_race_spd_list = []
 task3_worst_spd_list = []
+task3_gp_fit_failures = []
+if task3_multi_attribute:
+    # Valid defaults remain available if the first Task 3 GP fit fails.
+    updated_alpha = 100.0
+    updated_lr = 0.001
 clients_data,X_test, y_test, sex_list, column_names_list, ytest_potential = load_dataset(url,dataset_name, num_clients, sensitive_feature,distribution_type)
 
 task3_client_race = {}
@@ -431,7 +437,31 @@ for round in range(communication_rounds):
 
     for i in range(mobo_optimization_rounds):  # number of rounds of mobo optimization
         print("Global optimization round:", i)
-        fit_gpytorch_mll(mll)
+        if task3_multi_attribute:
+            try:
+                fit_gpytorch_mll(mll)
+            except ModelFittingError as error:
+                failure = {
+                    "communication_round": round + 1,
+                    "mobo_iteration": i + 1,
+                    "mobo_iteration_index": i,
+                    "exception_type": type(error).__name__,
+                    "retained_alpha": float(updated_alpha),
+                    "retained_learning_rate": float(updated_lr),
+                }
+                task3_gp_fit_failures.append(failure)
+                print(
+                    "Task 3 GP fit recovery: "
+                    f"communication round {round + 1}/{communication_rounds}, "
+                    f"MOBO iteration {i + 1}/{mobo_optimization_rounds} "
+                    f"(index {i}), {type(error).__name__}. "
+                    f"Retaining alpha={updated_alpha} and learning rate={updated_lr}; "
+                    "skipping the remaining MOBO iterations in this communication "
+                    "round and continuing to the next communication round."
+                )
+                break
+        else:
+            fit_gpytorch_mll(mll)
         if task3_multi_attribute:
             ref_point = objectives.new_tensor(TASK3_REFERENCE_POINT)
             acquisition_ref_point = ref_point
@@ -640,6 +670,7 @@ if task3_multi_attribute:
             "epochs": epochs,
             "communication_rounds": communication_rounds,
             "mobo_rounds": mobo_optimization_rounds,
+            "gp_fit_failures": task3_gp_fit_failures,
         },
     )
     task3_chart = save_task3_comparison_chart(
@@ -651,6 +682,9 @@ if task3_multi_attribute:
     print("Task 3 final absolute gender SPD:", final_task3_metrics["gender_absolute_spd"])
     print("Task 3 final absolute race SPD:", final_task3_metrics["race_absolute_spd"])
     print("Task 3 final intersectional max-min gap:", task3_intersectional_metrics["intersectional_max_min_gap"])
+    print("Task 3 GP fitting failures:", len(task3_gp_fit_failures))
+    if task3_gp_fit_failures:
+        print("Task 3 GP fitting failure details:", task3_gp_fit_failures)
     print("Task 3 summary:", task3_summary)
     print("Task 3 intersectional CSV:", task3_intersectional_csv)
     print("Task 3 comparison chart:", task3_chart)

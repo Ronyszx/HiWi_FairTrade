@@ -89,7 +89,7 @@ def test_task3_reference_is_strictly_worse():
     assert np.all(reference < feasible)
 
 
-def task3_output(tmp_path):
+def task3_output(tmp_path, failures=None):
     gender = np.array([1] * 3836 + [0] * 1732 + [1] * 524 + [0] * 421)
     binary_race = np.array([1] * 5568 + [0] * 945)
     metrics = compute_attribute_metrics(np.zeros(6513), gender, binary_race)
@@ -121,6 +121,7 @@ def task3_output(tmp_path):
             "epochs": 1,
             "communication_rounds": 2,
             "mobo_rounds": 1,
+            "gp_fit_failures": failures or [],
         },
     )
     chart = save_task3_comparison_chart(summary, task3_directory / "comparison.png")
@@ -143,12 +144,40 @@ def test_summary_schema(tmp_path):
         "sample_count", "preferred_direction", "notes", "dataset",
         "dataset_split", "seed", "device", "clients", "epochs",
         "communication_rounds", "mobo_rounds", "local_fairness_loss",
-        "mobo_fairness_objective",
+        "mobo_fairness_objective", "gp_fit_failure_count",
+        "gp_fit_failure_rounds", "gp_fit_failure_mobo_iterations",
+        "gp_fit_failure_mobo_indices", "gp_fit_failure_types",
+        "gp_fit_retained_alphas", "gp_fit_retained_learning_rates",
+        "gp_fit_fallback_action",
     ]
+    assert saved["gp_fit_failure_count"].eq(0).all()
+    assert saved["gp_fit_failure_rounds"].eq("none").all()
     assert "history_semantics" in saved["record_type"].values
     counts = saved[saved["record_type"] == "group_count"]
     assert len(counts) == 8
     assert counts["sample_count"].sum() == 19539
+
+
+def test_summary_records_gp_fit_recovery(tmp_path):
+    failure = {
+        "communication_round": 13,
+        "mobo_iteration": 10,
+        "mobo_iteration_index": 9,
+        "exception_type": "ModelFittingError",
+        "retained_alpha": 850.0,
+        "retained_learning_rate": 0.004,
+    }
+    summary, _ = task3_output(tmp_path, [failure])
+    row = pd.read_csv(summary).iloc[0]
+
+    assert row["gp_fit_failure_count"] == 1
+    assert row["gp_fit_failure_rounds"] == 13
+    assert row["gp_fit_failure_mobo_iterations"] == 10
+    assert row["gp_fit_failure_mobo_indices"] == 9
+    assert row["gp_fit_failure_types"] == "ModelFittingError"
+    assert row["gp_fit_retained_alphas"] == 850.0
+    assert row["gp_fit_retained_learning_rates"] == 0.004
+    assert "retain previous valid alpha/lr" in row["gp_fit_fallback_action"]
 
 
 def test_headless_chart_creation(tmp_path):

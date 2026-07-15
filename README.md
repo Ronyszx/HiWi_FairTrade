@@ -153,7 +153,18 @@ The run writes only to `results/task3/`. The four `.npy` arrays store one initia
 - `adult_seed42_intersectional_metrics.csv`
 - `adult_seed42_task1_vs_task3.png`
 
-The default `15/50/10` experiment is substantially longer than the smoke test. A full Task 3 result has not yet been recorded in this README. For a direct Task 1 comparison, the implementation deliberately preserves the existing model Sigmoid, `BCEWithLogitsLoss`, the additional sigmoid inside `ConstraintLoss`, MOBO use of `X_test`, repeated candidate-loop behavior, and the final `0.6/0.4` weighted selection. These are methodological limitations to report separately, not silent Task 3 fixes.
+The completed seed-42 CPU run produced:
+
+| Metric | Task 3 result |
+| --- | ---: |
+| Balanced accuracy | 0.7683912709437309 |
+| Absolute gender SPD | 0.010463530725209502 |
+| Absolute race SPD | 0.0003118728334245424 |
+| Worst absolute SPD | 0.010463530725209502 |
+| Intersectional max-min gap | 0.09037460789468915 |
+| Recovered GP fitting failures | 1 |
+
+For a direct Task 1 comparison, the implementation deliberately preserves the existing model Sigmoid, `BCEWithLogitsLoss`, the additional sigmoid inside `ConstraintLoss`, MOBO use of `X_test`, repeated candidate-loop behavior, and the final `0.6/0.4` weighted selection. Detailed results and limitations are recorded in [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md).
 
 The original repository's Bank commands are preserved below for reference.
 

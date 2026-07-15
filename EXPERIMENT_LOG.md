@@ -167,7 +167,7 @@ The full run retained the known nonfatal BoTorch warnings: 301 random initial-ca
 
 Purpose: Extend the opt-in Adult experiment so gender and race both influence local fairness training, while MOBO conservatively optimizes the worse of their two absolute evaluation disparities.
 
-Status: Implementation and short smoke verification completed on 2026-07-13. The full `15 epochs / 50 communication rounds / 10 MOBO rounds` Task 3 experiment has not been run, so no final research comparison is claimed here.
+Status: Implementation and short smoke verification completed on 2026-07-13. The first full run failed on 2026-07-14; after adding the documented Task 3-only GP-fit recovery, the full `15 epochs / 50 communication rounds / 10 MOBO rounds` run completed successfully later that day.
 
 ### Design
 
@@ -206,3 +206,110 @@ Start-of-round histories, each with exactly two finite values:
 Verification: `21 passed` with `.venv/bin/python -m pytest -q`; all Python files compiled; the final summary and intersectional CSVs parsed; and the comparison chart was a valid non-empty PNG. The existing Task 1 balanced-accuracy and SPD arrays retained SHA-256 hashes `2d51b7374e5dce81cac53cf577e246a559f16be5de4d71d3680e4f67048cd376` and `3ad207641e555121103e96fc6c7a6667feab623872a0eac8bd556f7d329b74ef`.
 
 The smoke run retained the baseline BoTorch float32, unscaled-input, unstandardized-output, and nonfatal SciPy optimization warnings. The sandbox also used a temporary writable Matplotlib cache because the default home cache was unavailable. The existing Sigmoid/loss mismatch, second constraint sigmoid, MOBO test-split use, and repeated candidate evaluation remain unchanged for a direct Task 1 comparison.
+
+### Failed full-run diagnosis and GP-fit recovery
+
+The seed-42 CPU full run completed communication rounds 1 through 12. In communication round 13, MOBO indices 0 through 8 completed; `fit_gpytorch_mll` then raised `ModelFittingError` at index 9, before candidate generation or observation append. Final evaluation and artifact generation were not reached.
+
+All 271 printed objective evaluations before the crash were finite. The failed log contained 13 float32 GP warnings, 13 unscaled-input warnings, 13 unstandardized-output warnings, two candidate optimization retries, seven GP-fit optimization warnings, 41 Cholesky jitter warnings, and one terminal `ModelFittingError`.
+
+The nested candidate/model loop evaluates each proposed candidate once per GP output model. Therefore, each MOBO candidate is evaluated twice and its identical input is appended twice. The failed run produced exactly 271 evaluations: 12 completed communication rounds with `1 + 2 * 10` evaluations each, followed by 19 evaluations in round 13. Without the duplicate candidate evaluations, 142 evaluations would have been expected at the same stopping point. Because `evaluate()` also updates the global model, duplicate inputs can receive different outputs. This likely contributed to the non-positive-definite covariance matrices, but the loop remains unchanged here to preserve baseline behavior and comparability.
+
+Evidence was preserved without deletion:
+
+- Failed log: `results/task3/adult_seed42_task3_failed_round13.log`
+- Original stale smoke artifacts: `results/task3/smoke/pre_recovery_seed42_1_2_1/`
+- Post-recovery normal smoke artifacts: `results/task3/smoke/post_recovery_normal_seed42_1_2_1/`
+- Forced-recovery artifacts and logs: `results/task3/smoke/post_recovery_forced_failure_seed42_1_2_1/`
+
+The narrow recovery catches only `ModelFittingError` in Task 3 mode. It records the communication round, one-based MOBO iteration, printed zero-based index, exception type, and retained alpha/learning rate. It then skips the remaining MOBO iterations in that communication round and continues with the next communication round using the previous valid hyperparameters. Baseline mode continues to call `fit_gpytorch_mll` directly without this catch.
+
+Recovery verification:
+
+- Focused test suite: `22 passed`.
+- Normal `1/2/1` Task 3 smoke test: exit code 0, zero GP-fit failures, and four finite two-value history arrays.
+- Forced first-fit Task 3 failure: the message reported round 1, iteration 1, `ModelFittingError`, retained `alpha=100.0`, and retained learning rate `0.001`; communication round 2 and final artifact generation completed.
+- Forced baseline failure: exited nonzero with the original `ModelFittingError` and no Task 3 recovery message.
+- A new `15/50/10` run was subsequently completed; its final results follow.
+
+### Full Task 3 result
+
+Configuration:
+
+- Dataset: Adult
+- Training mode: joint gender-and-race statistical parity
+- Clients: 3
+- Client epochs: 15
+- Communication rounds: 50
+- MOBO rounds per communication round: 10
+- Distribution: random
+- Seed: 42
+- Device: CPU
+- Evaluation split: existing Adult test split (`20%`, `random_state=42`)
+- Run date: 2026-07-14
+
+Command:
+
+```bash
+python FairTrade.py \
+  --dataset_name adult \
+  --fairness_notion stat_parity \
+  --num_clients 3 \
+  --epochs 15 \
+  --communication_rounds 50 \
+  --mobo_optimization_rounds 10 \
+  --distribution_type random \
+  --seed 42 \
+  --device cpu \
+  --task3_multi_attribute
+```
+
+Final-model metrics:
+
+| Metric | Value |
+| --- | ---: |
+| Balanced accuracy | 0.7683912709437309 |
+| Signed gender SPD | 0.010463530725209502 |
+| Absolute gender SPD | 0.010463530725209502 |
+| Signed race SPD | 0.0003118728334245424 |
+| Absolute race SPD | 0.0003118728334245424 |
+| Worst absolute gender/race SPD | 0.010463530725209502 |
+| Intersectional max-min gap | 0.09037460789468915 |
+
+The four history arrays contain exactly 50 finite start-of-round evaluations. Candidate evaluations are excluded. Last-10 statistics use the population standard deviation (`ddof=0`):
+
+| Start-of-round history | Last-10 mean | Last-10 standard deviation |
+| --- | ---: | ---: |
+| Balanced accuracy | 0.7683008193969727 | 0.0034044703096556303 |
+| Signed gender SPD | 0.025938502707977353 | 0.01078095439098539 |
+| Signed race SPD | 0.008913690476190483 | 0.006297371037753976 |
+| Worst absolute SPD | 0.025938502707977353 | 0.01078095439098539 |
+
+Task 1 versus Task 3:
+
+| Metric | Task 1 | Task 3 | Absolute change or reduction | Relative reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Balanced accuracy | 0.7690318211867191 | 0.7683912709437309 | 0.0006405502429881471 decrease | - |
+| Absolute gender SPD | 0.02843397520847807 | 0.010463530725209502 | 0.017970444483268566 reduction | 63.20060544299263% |
+| Absolute race SPD | 0.18502041142127348 | 0.0003118728334245424 | 0.18470853858784894 reduction | 99.83143868774866% |
+| Worst absolute SPD | 0.18502041142127348 | 0.010463530725209502 | 0.17455688069606398 reduction | 94.34466141068887% |
+| Intersectional max-min gap | 0.19205167199601722 | 0.09037460789468915 | 0.10167706410132807 reduction | 52.94255605514159% |
+
+Absolute changes are differences in the metric's native 0-to-1 units. Relative reductions divide that difference by the Task 1 value and are percentages, not percentage-point changes. The full-precision Task 1 race and intersectional values were reconstructed from the saved integer group and positive-prediction counts rather than from their 10-decimal CSV display values.
+
+Local client training used an equal average of gender and race demographic-parity surrogate losses, while MOBO optimized the worst absolute gender/race SPD. Balanced accuracy decreased only slightly, and both aggregate disparities improved strongly. The intersectional max-min gap also improved but remained non-zero at approximately `0.0904`, showing that small marginal gender and race gaps do not guarantee intersectional parity. One GP fitting failure used the documented fallback, retaining the previous valid hyperparameters instead of terminating training.
+
+The recovery occurred at communication round 13, MOBO iteration 10 (zero-based index 9), and retained `alpha=1276.331787109375` and learning rate `0.008032766170799732`. The completed log contains 50 float32 GP warnings, 50 unscaled-input warnings, 50 unstandardized-output warnings, 18 GP-fit SciPy failures, seven candidate-generation SciPy retries, 76 Cholesky jitter warnings, and one recovered `ModelFittingError`. No terminal traceback occurred.
+
+Artifacts and SHA-256 hashes:
+
+- `results/task3/adult_seed42_multi_attribute_summary.csv`: `691123e3f2e263268c42513c0377418aca505710aab6b8b30fe9fe158079a8a4`
+- `results/task3/adult_seed42_intersectional_metrics.csv`: `75dfae398e565391e942aa7e4002b3411025642ecc9c5258ee823da4b70645e9`
+- `results/task3/adult_seed42_task1_vs_task3.png`: `d5c03861390e05dedd180a42eaa121b4bbeb8e6718d8c03580e854efd524f4df`
+- `results/task3/adult_seed42_balanced_accuracy.npy`: `1246ead3b132740fb4c7f6c9dabde55f79c5e7f7da3bd6c9225e57ef7b347874`
+- `results/task3/adult_seed42_gender_signed_spd.npy`: `c8b95ccabcb830e168304c7a367cc0b8800d7e931df5df563c346d02342ed64e`
+- `results/task3/adult_seed42_race_signed_spd.npy`: `fc7e28dd40280fc61d4ec67001e082b08992a10bc95ffaf491d3900fc82aff4b`
+- `results/task3/adult_seed42_worst_absolute_spd.npy`: `90ab022bf59752f30a214a986fa6038f52b51d4bf358b76aa5c88a47edaa9b1c`
+- `results/task3/adult_seed42_task3_full.log`: `c5c64ce7b189a5afad38d4cb9f8046b8607e02f62797d3b650a096d53a3b5699`
+
+The summary and intersectional CSVs serialize floating-point values to 10 decimal places, and they match the corresponding final-log values at that stored precision. The full-precision values above come from the final log. The comparison chart was visually checked against the Task 1 and Task 3 summary values.

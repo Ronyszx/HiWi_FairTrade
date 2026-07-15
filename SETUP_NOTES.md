@@ -35,3 +35,15 @@ Baseline reproducibility and portability:
 - Added automatic creation of `results/<dataset_name>/` before saving result arrays.
 - Added the installed `psmpy==0.3.16` version to `requirements.txt` and synchronized the README dependencies.
 - These changes do not alter the training mathematics, fairness objective, model architecture, evaluation split, or MOBO candidate loop.
+
+Task 3 multi-attribute support:
+- Added opt-in `--task3_multi_attribute`, restricted to the Adult/statistical-parity/random configuration and mutually exclusive with `--task2_evaluation`.
+- Prepared aligned gender and binary race vectors once after dataset loading. Adult race code `4` is White; codes `0` through `3` are grouped as Non-White.
+- Validated that every client and the test split contain both groups for each sensitive attribute before training.
+- Combined the two local differentiable demographic-parity losses as `0.5 * gender_loss + 0.5 * race_loss`.
+- Used rounded predictions only for the MOBO objective `[-max(abs(gender_spd), abs(race_spd)), balanced_accuracy]`, with qEHVI reference point `[-1.01, -0.01]`.
+- Kept candidate evaluations out of the four start-of-round history arrays and isolated every Task 3 artifact under `results/task3/`.
+- Reused the Task 2 intersectional evaluator exactly once for final Task 3 predictions.
+- A Task 3-only `ModelFittingError` fallback retains the previous valid alpha and learning rate, skips the remaining MOBO iterations in the affected communication round, and continues with the next round. Baseline behavior is unchanged.
+- The full seed-42 CPU `15/50/10` Task 3 experiment completed with one recovered GP fit failure.
+- Preserved the existing Sigmoid, `BCEWithLogitsLoss`, second constraint sigmoid, MOBO test-split use, repeated candidate loop, and weighted candidate selection for a direct baseline comparison.
